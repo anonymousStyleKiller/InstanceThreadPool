@@ -5,7 +5,9 @@ public class InstanceThreadPool
     private readonly ThreadPriority _priority;
     private readonly string? _name;
     private readonly Thread[] _threads;
-    public readonly AutoResetEvent _workingEvent = new(false);
+    private readonly Queue<(Action<object?> work, object? Parameter)> _works = new();
+    private readonly AutoResetEvent _workingEvent = new(false);
+    private readonly AutoResetEvent _executeEvent = new(true);
 
     public InstanceThreadPool(int maxThreadsCount, ThreadPriority priority = ThreadPriority.Normal, string? name =null)
     {
@@ -39,7 +41,11 @@ public class InstanceThreadPool
 
     private void Execute(object? Parameter, Action<object?> work)
     {
-        
+        _executeEvent.WaitOne(); // asking an access to queue
+        _works.Enqueue((work, Parameter));
+        _executeEvent.Set(); // allow an access to queue 
+
+        _workingEvent.Set();
     }
     
     private void WorkingThread()
