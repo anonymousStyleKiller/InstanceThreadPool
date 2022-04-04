@@ -1,4 +1,6 @@
-﻿namespace InstanceThreadPool;
+﻿using System.Diagnostics;
+
+namespace InstanceThreadPool;
 
 public class InstanceThreadPool
 {
@@ -50,6 +52,21 @@ public class InstanceThreadPool
     
     private void WorkingThread()
     {
-        _workingEvent.WaitOne();
+        var threadName = Thread.CurrentThread.Name;
+        while (true)
+        {
+            _workingEvent.WaitOne();
+            _executeEvent.WaitOne();
+            var (work, parameter) = _works.Dequeue();
+            _executeEvent.Set();
+            try
+            {
+                work(parameter);
+            }
+            catch (Exception e)
+            {
+                Trace.TraceError("Error executing tasks in thread {0}:{1}", threadName, e);
+            }
+        }
     }
 }
