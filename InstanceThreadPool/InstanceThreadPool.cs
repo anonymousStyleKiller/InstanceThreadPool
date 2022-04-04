@@ -11,10 +11,10 @@ public class InstanceThreadPool
     private readonly AutoResetEvent _workingEvent = new(false);
     private readonly AutoResetEvent _executeEvent = new(true);
 
-    public InstanceThreadPool(int maxThreadsCount, ThreadPriority priority = ThreadPriority.Normal, string? name =null)
+    public InstanceThreadPool(int maxThreadsCount, ThreadPriority priority = ThreadPriority.Normal, string? name = null)
     {
-        if (maxThreadsCount <= 0) 
-            throw new ArgumentOutOfRangeException(nameof(maxThreadsCount), 
+        if (maxThreadsCount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maxThreadsCount),
                                                   maxThreadsCount, "Count of pool must be more than 1 or equals.");
 
         _priority = priority;
@@ -26,8 +26,8 @@ public class InstanceThreadPool
     {
         for (var i = 0; i < _threads.Length; i++)
         {
-            var name = $"{nameof(InstanceThreadPool)}[{_name??GetHashCode().ToString("x")}]-Thread{i}";
-            
+            var name = $"{nameof(InstanceThreadPool)}[{_name ?? GetHashCode().ToString("x")}]-Thread{i}";
+
             var thread = new Thread(WorkingThread)
             {
                 Name = name,
@@ -39,26 +39,42 @@ public class InstanceThreadPool
         }
     }
 
-    public void Execute(Action work) => Execute(null, _=>work());
+    public void Execute(Action work)
+    {
+        Execute(null, _ => work());
+    }
 
     private void Execute(object? Parameter, Action<object?> work)
     {
-        _executeEvent.WaitOne(); // asking an access to queue
+        _executeEvent.WaitOne(); // asking an access to the queue
         _works.Enqueue((work, Parameter));
-        _executeEvent.Set(); // allow an access to queue 
+        _executeEvent.Set(); // allow an access to the queue 
 
         _workingEvent.Set();
     }
-    
+
     private void WorkingThread()
     {
         var threadName = Thread.CurrentThread.Name;
         while (true)
         {
             _workingEvent.WaitOne();
-            _executeEvent.WaitOne();
-            var (work, parameter) = _works.Dequeue();
-            _executeEvent.Set();
+            _executeEvent.WaitOne(); // asking an access to the queue
+
+            while (_works.Count == 0) // if the queue hasn't a task
+            {
+                _executeEvent.Set(); // clear the queue
+                _workingEvent.WaitOne(); // waiting for allow to execute
+                _executeEvent.WaitOne(); // asking an access to the queue
+            }
+
+            var (work, parameter) = _works.Dequeue(); // get tasks from the queue
+            if(_works.Count == 0) // If something remain it will start thread again 
+            {
+                _workingEvent.Set();
+            }
+            
+            _executeEvent.Set(); // 
             try
             {
                 work(parameter);
