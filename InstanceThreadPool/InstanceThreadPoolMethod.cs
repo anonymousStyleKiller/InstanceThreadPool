@@ -10,8 +10,8 @@ public class InstanceThreadPoolMethod : IDisposable
     private readonly Queue<(Action<object?> work, object? Parameter)> _works = new();
     private readonly AutoResetEvent _workingEvent = new(false);
     private readonly AutoResetEvent _executeEvent = new(true);
+    private const int DisposeThreadJoinTimeout = 1000;
     private volatile bool _canWork = true;
-
     public InstanceThreadPoolMethod(int maxThreadsCount, ThreadPriority priority = ThreadPriority.Normal,
         string? name = null)
     {
@@ -65,52 +65,71 @@ public class InstanceThreadPoolMethod : IDisposable
     {
         var threadName = Thread.CurrentThread.Name;
         Trace.TraceInformation($"Thread {threadName} with id :{Environment.CurrentManagedThreadId} was started");
-        while (_canWork)
+        try
         {
-            // asking an access to the queue
-            _workingEvent.WaitOne();
-            _executeEvent.WaitOne();
-
-            // if the queue hasn't a task
-            while (_works.Count == 0)
+            while (_canWork)
             {
-                // clear the queue
-                _executeEvent.Set();
-                // waiting for allow to execute
-                _workingEvent.WaitOne();
                 // asking an access to the queue
+                _workingEvent.WaitOne();
+                if (!_canWork) break;
                 _executeEvent.WaitOne();
-            }
 
-            // get tasks from the queue
-            var (work, parameter) = _works.Dequeue();
-            // If something remain it will start thread again 
-            if (_works.Count > 0)
-                _workingEvent.Set();
+                // if the queue hasn't a task
+                while (_works.Count == 0)
+                {
+                    // clear the queue
+                    _executeEvent.Set();
+                    // waiting for allow to execute
+                    _workingEvent.WaitOne();
+                    if (!_canWork) break;
+                    // asking an access to the queue
+                    _executeEvent.WaitOne();
+                }
+
+                // get tasks from the queue
+                var (work, parameter) = _works.Dequeue();
+                // If something remain it will start thread again 
+                if (_works.Count > 0)
+                    _workingEvent.Set();
 
 
-            _executeEvent.Set(); // 
-            Trace.TraceInformation($"Thread {threadName} with id :{Environment.CurrentManagedThreadId} is doing a task ");
-            try
-            {
-                var timer = Stopwatch.StartNew();
-                work(parameter);
-                Trace.TraceInformation($"Thread {threadName} with id :{Environment.CurrentManagedThreadId} has done the task. " +
-                                       $"Done it in {timer.ElapsedMilliseconds}mc");
-            }
-            catch (Exception e)
-            {
-                Trace.TraceError("Error executing tasks in thread {0}:{1}", threadName, e);
+                _executeEvent.Set(); // 
+                Trace.TraceInformation($"Thread {threadName} with id :{Environment.CurrentManagedThreadId} is doing a task ");
+                try
+                {
+                    var timer = Stopwatch.StartNew();
+                    work(parameter);
+                    Trace.TraceInformation($"Thread {threadName} with id :{Environment.CurrentManagedThreadId} has done the task. " +
+                                           $"Done it in {timer.ElapsedMilliseconds}mc");
+                }
+                catch (Exception e)
+                {
+                    Trace.TraceError("Error executing tasks in thread {0}:{1}", threadName, e);
+                }
             }
         }
-
-        Trace.TraceInformation($"Thread {threadName} was finished.");
+        catch (ThreadInterruptedException e)
+        {
+            Trace.TraceWarning($"Thread {threadName} was interrupted.");
+        }
+        finally
+        {
+            Trace.TraceInformation($"Thread {threadName} was finished.");
+            _workingEvent.Set();
+        }
     }
 
+ 
     public void Dispose()
     {
         _canWork = false;
-       _executeEvent.Dispose();
+        _workingEvent.Set();
+        
+        foreach (var thread in _threads) 
+            if (!thread.Join(DisposeThreadJoinTimeout)) 
+                thread.Interrupt();
+        
+        _executeEvent.Dispose();
        _workingEvent.Dispose();
     }
 }
