@@ -1,8 +1,11 @@
-﻿using InstanceThreadPool;
+﻿using System.Diagnostics;
+using InstanceThreadPool;
 
 var messages = Enumerable.Range(1, 100).Select(i=>$"Message - {i}");
 
 var theadPool = new InstanceThreadPoolMethod(10);
+
+Trace.Listeners.Add(new ConsoleTraceListener());
 
 
 foreach (var message in messages)

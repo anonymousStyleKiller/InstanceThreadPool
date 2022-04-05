@@ -2,7 +2,7 @@
 
 namespace InstanceThreadPool;
 
-public class InstanceThreadPoolMethod
+public class InstanceThreadPoolMethod : IDisposable
 {
     private readonly ThreadPriority _priority;
     private readonly string? _name;
@@ -10,6 +10,7 @@ public class InstanceThreadPoolMethod
     private readonly Queue<(Action<object?> work, object? Parameter)> _works = new();
     private readonly AutoResetEvent _workingEvent = new(false);
     private readonly AutoResetEvent _executeEvent = new(true);
+    private volatile bool _canWork = true;
 
     public InstanceThreadPoolMethod(int maxThreadsCount, ThreadPriority priority = ThreadPriority.Normal,
         string? name = null)
@@ -48,8 +49,11 @@ public class InstanceThreadPoolMethod
 
     public void Execute(object parameter, Action<object> work)
     {
+        if (_canWork) throw new InvalidOperationException("Trying to pass a task to pull of thread");
+        
         // asking an access to the queue
         _executeEvent.WaitOne();
+        if (_canWork) throw new InvalidOperationException("Trying to pass a task to pull of thread");
         _works.Enqueue((work, parameter));
         // allow an access to the queue 
         _executeEvent.Set();
@@ -61,7 +65,7 @@ public class InstanceThreadPoolMethod
     {
         var threadName = Thread.CurrentThread.Name;
         Trace.TraceInformation($"Thread {threadName} with id :{Environment.CurrentManagedThreadId} was started");
-        while (true)
+        while (_canWork)
         {
             // asking an access to the queue
             _workingEvent.WaitOne();
@@ -101,5 +105,12 @@ public class InstanceThreadPoolMethod
         }
 
         Trace.TraceInformation($"Thread {threadName} was finished.");
+    }
+
+    public void Dispose()
+    {
+        _canWork = false;
+       _executeEvent.Dispose();
+       _workingEvent.Dispose();
     }
 }
